@@ -14,7 +14,7 @@ final class AppCoordinator {
 
     func start() {
         // Set up the menubar
-        statusBarController = StatusBarController(stateManager: stateManager, transcriptionEngine: transcriptionEngine)
+        statusBarController = StatusBarController(stateManager: stateManager, transcriptionEngine: transcriptionEngine, permissionManager: permissionManager)
         statusBarController?.onModelSelected = { [weak self] modelName in
             self?.switchModel(to: modelName)
         }
@@ -25,8 +25,8 @@ final class AppCoordinator {
             onRecordingStarted: { [weak self] in
                 self?.startRecording()
             },
-            onRecordingStopped: { [weak self] in
-                self?.stopRecordingAndTranscribe()
+            onRecordingStopped: { [weak self] shouldAutoPaste in
+                self?.stopRecordingAndTranscribe(shouldAutoPaste: shouldAutoPaste)
             },
             onDismiss: { [weak self] in
                 self?.dismiss()
@@ -37,11 +37,12 @@ final class AppCoordinator {
         )
         hotkeyMonitor?.start()
 
-        // Request microphone permission on launch, then load model
+        // Request microphone permission on launch, then load model, then check accessibility
         Task {
             let granted = await permissionManager.requestMicrophonePermission()
             print("[LocalSTT] Microphone permission: \(granted ? "granted" : "denied")")
             await loadModel()
+            checkAccessibilityOnboarding()
         }
     }
 
@@ -110,7 +111,7 @@ final class AppCoordinator {
         }
     }
 
-    private func stopRecordingAndTranscribe() {
+    private func stopRecordingAndTranscribe(shouldAutoPaste: Bool = false) {
         guard case .recording = stateManager.state else { return }
 
         let audioBuffer = audioRecorder.stopRecording()
@@ -126,12 +127,18 @@ final class AppCoordinator {
             do {
                 let result = try await transcriptionEngine.transcribe(audioBuffer: audioBuffer)
                 await MainActor.run {
-                    if result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    print("[LocalSTT] shouldAutoPaste=\(shouldAutoPaste) autoPasteEnabled=\(self.permissionManager.autoPasteEnabled) hasAccessibility=\(self.permissionManager.hasAccessibilityPermission) canAutoPaste=\(self.permissionManager.canAutoPaste)")
+                    if text.isEmpty {
                         stateManager.state = .result(text: "No speech detected.", language: result.language)
+                        statusBarController?.showPopover()
+                    } else if shouldAutoPaste && self.permissionManager.canAutoPaste {
+                        stateManager.state = .result(text: result.text, language: result.language)
+                        pasteToFocusedApp(result.text)
                     } else {
                         stateManager.state = .result(text: result.text, language: result.language)
+                        statusBarController?.showPopover()
                     }
-                    statusBarController?.showPopover()
                 }
             } catch {
                 await MainActor.run {
@@ -139,6 +146,32 @@ final class AppCoordinator {
                     statusBarController?.showPopover()
                 }
             }
+        }
+    }
+
+    private func checkAccessibilityOnboarding() {
+        guard permissionManager.autoPasteEnabled, !permissionManager.hasAccessibilityPermission else { return }
+        let granted = permissionManager.showAccessibilityOnboarding()
+        if !granted {
+            permissionManager.autoPasteEnabled = false
+            statusBarController?.updateAutoPasteMenuItem()
+        }
+    }
+
+    private func pasteToFocusedApp(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        statusBarController?.closePopover()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let source = CGEventSource(stateID: .hidSystemState)
+            let vKeyCode: UInt16 = 0x09  // kVK_ANSI_V
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
+            keyDown?.flags = .maskCommand
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
+            keyUp?.flags = .maskCommand
+            keyDown?.post(tap: .cghidEventTap)
+            keyUp?.post(tap: .cghidEventTap)
         }
     }
 }

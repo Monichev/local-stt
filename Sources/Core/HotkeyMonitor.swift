@@ -7,7 +7,7 @@ import Carbon
 ///   - Double tap → dismiss only
 final class HotkeyMonitor {
     private let onRecordingStarted: () -> Void
-    private let onRecordingStopped: () -> Void
+    private let onRecordingStopped: (_ shouldAutoPaste: Bool) -> Void
     private let onDismiss: () -> Void
     private let onCopy: () -> Void
 
@@ -25,13 +25,14 @@ final class HotkeyMonitor {
     private var state: State = .idle
     private var holdTimer: DispatchWorkItem?
     private var doubleTapTimer: DispatchWorkItem?
+    private var commandHeldAtStart = false
 
     private let holdThreshold: TimeInterval = 0.3
     private let doubleTapWindow: TimeInterval = 0.3
 
     init(
         onRecordingStarted: @escaping () -> Void,
-        onRecordingStopped: @escaping () -> Void,
+        onRecordingStopped: @escaping (_ shouldAutoPaste: Bool) -> Void,
         onDismiss: @escaping () -> Void,
         onCopy: @escaping () -> Void
     ) {
@@ -78,6 +79,7 @@ final class HotkeyMonitor {
             let timer = DispatchWorkItem { [weak self] in
                 guard let self, self.state == .waitingForHold else { return }
                 self.state = .recording
+                self.commandHeldAtStart = NSEvent.modifierFlags.contains(.command)
                 self.onRecordingStarted()
             }
             holdTimer = timer
@@ -110,9 +112,11 @@ final class HotkeyMonitor {
 
         case .recording:
             // Release after hold — stop recording
+            let autoPaste = commandHeldAtStart
             state = .idle
             cancelTimers()
-            onRecordingStopped()
+            commandHeldAtStart = false
+            onRecordingStopped(autoPaste)
 
         case .ignoringRelease:
             // Release after double-tap action already fired

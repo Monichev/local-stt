@@ -54,6 +54,22 @@ After transcription, the popover shows:
 
 The popover auto-sizes to fit the text, up to 1/3 of screen height.
 
+## Build DMG
+
+```bash
+./scripts/build-dmg.sh
+# Output: dist/LocalSTT-0.1.0.dmg
+
+# With code signing:
+CODESIGN_IDENTITY="Developer ID Application: ..." VERSION=1.0.0 ./scripts/build-dmg.sh
+```
+
+## Create GitHub Release
+
+```bash
+gh release create v0.1.0 dist/LocalSTT-0.1.0.dmg --title "v0.1.0"
+```
+
 ## Project structure
 
 ```

@@ -8,6 +8,7 @@ enum Constants {
     static let popoverWidth: CGFloat = 340
     static let popoverMinHeight: CGFloat = 80
     static let popoverMaxHeight: CGFloat = 400
+    static let autoPasteEnabledKey = "autoPasteEnabled"
 
     enum Model {
         static let defaultName = "base"

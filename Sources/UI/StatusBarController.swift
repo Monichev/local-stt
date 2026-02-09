@@ -8,17 +8,20 @@ final class StatusBarController {
     private var statusMenu: NSMenu?
     private let stateManager: StateManager
     private let transcriptionEngine: TranscriptionEngine
+    private let permissionManager: PermissionManager
     private var eventMonitor: Any?
     private var observation: Any?
     private var translateMenuItem: NSMenuItem?
+    private var autoPasteMenuItem: NSMenuItem?
     private var modelMenuItems: [String: NSMenuItem] = [:]
 
     /// Called when the user picks a different model from the menu
     var onModelSelected: ((String) -> Void)?
 
-    init(stateManager: StateManager, transcriptionEngine: TranscriptionEngine) {
+    init(stateManager: StateManager, transcriptionEngine: TranscriptionEngine, permissionManager: PermissionManager) {
         self.stateManager = stateManager
         self.transcriptionEngine = transcriptionEngine
+        self.permissionManager = permissionManager
     }
 
     func setup() {
@@ -46,6 +49,12 @@ final class StatusBarController {
         translateItem.state = transcriptionEngine.translateToEnglish ? .on : .off
         menu.addItem(translateItem)
         self.translateMenuItem = translateItem
+
+        let autoPasteItem = NSMenuItem(title: "Auto-Paste", action: #selector(toggleAutoPaste(_:)), keyEquivalent: "")
+        autoPasteItem.target = self
+        autoPasteItem.state = permissionManager.autoPasteEnabled ? .on : .off
+        menu.addItem(autoPasteItem)
+        self.autoPasteMenuItem = autoPasteItem
 
         // Model submenu
         let modelItem = NSMenuItem(title: "Model", action: nil, keyEquivalent: "")
@@ -158,6 +167,28 @@ final class StatusBarController {
     @objc private func toggleTranslate(_ sender: NSMenuItem) {
         transcriptionEngine.translateToEnglish.toggle()
         sender.state = transcriptionEngine.translateToEnglish ? .on : .off
+    }
+
+    @objc private func toggleAutoPaste(_ sender: NSMenuItem) {
+        if permissionManager.autoPasteEnabled {
+            // Turning off
+            permissionManager.autoPasteEnabled = false
+        } else {
+            // Turning on — check if we have permission
+            permissionManager.autoPasteEnabled = true
+            if !permissionManager.hasAccessibilityPermission {
+                let granted = permissionManager.showAccessibilityOnboarding()
+                if !granted {
+                    permissionManager.autoPasteEnabled = false
+                }
+            }
+        }
+        sender.state = permissionManager.autoPasteEnabled ? .on : .off
+    }
+
+    /// Update the auto-paste menu item state (called from AppCoordinator after onboarding)
+    func updateAutoPasteMenuItem() {
+        autoPasteMenuItem?.state = permissionManager.autoPasteEnabled ? .on : .off
     }
 
     @objc private func selectModel(_ sender: NSMenuItem) {

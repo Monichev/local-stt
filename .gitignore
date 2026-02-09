@@ -28,6 +28,10 @@ Package.resolved
 *.bin
 *.mlmodelc/
 
+# Distribution
+dist/
+*.dmg
+
 # IDE
 .idea/
 .vscode/
